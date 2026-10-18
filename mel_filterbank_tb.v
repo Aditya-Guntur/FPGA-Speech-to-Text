@@ -76,6 +76,6 @@ module tb_mel_filterbank;
         $display("Mel[11] = %d", mel_features_11);
         $display("Mel[12] = %d", mel_features_12);
 
-        $stop;
+        $finish;
     end
 endmodule
