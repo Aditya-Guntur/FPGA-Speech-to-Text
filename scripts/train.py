@@ -5,8 +5,9 @@ hidden_weights.mem / hidden_biases.mem / weights.mem / biases.mem, in
 the exact format and layout dense_hidden.v and matrix_multiplication.v
 expect.
 
-Two things make a real difference at this model's size (fixed by the
-RTL: a hidden layer of 16 units) with a few thousand real recordings:
+Three things make a real difference at this model's size (fixed by
+the RTL: a hidden layer of 16 units) with a few thousand real
+recordings:
 
 1. Segment-pooling instead of whole-clip mean-pooling. Averaging every
    frame of a ~1s clip into one vector throws away virtually all of
@@ -17,19 +18,29 @@ RTL: a hidden layer of 16 units) with a few thousand real recordings:
    extract_segments mean-pools 6 equal time segments separately
    instead of the whole clip at once (matching segment_buffer.v's
    hardware buffer exactly), which alone roughly doubled held-out
-   accuracy in testing versus single-vector pooling - from there,
-   plain standardized hard-label training already beats every
-   knowledge-distillation variant tried (the extra signal in 78
-   segment-pooled features made the distillation step that helped the
-   old 13-feature, whole-clip-mean model actively counterproductive
-   here, so this script no longer does it).
-2. Standardizing those 78 features before training. Raw filterbank
-   output is badly scaled for gradient descent (some bands run 10-100x
-   larger than others) and starves half the ReLU units dead on
-   initialization. Standardizing fixes this, and because standardize-
-   then-affine is itself affine, the (mean, std) can be folded exactly
-   into the hidden layer's weights/bias after training - the hardware
-   still sees raw, unstandardized Mel features at runtime.
+   accuracy in testing versus single-vector pooling.
+2. Per-utterance gain normalization (extract_segments also applies
+   extract_features.gain_normalize, matching gain_normalize.v)
+   compensates for how loud a given recording happens to be, instead
+   of leaving that nuisance variation for the classifier to absorb.
+   Standardizing the result before training (folding that back into
+   the hidden layer's weights/bias afterward, so the exported .mem
+   files still expect raw, unstandardized hardware input) further
+   fixes how badly scaled raw filterbank output is for gradient
+   descent. Both measurably improve held-out accuracy, and they stack.
+3. Data augmentation: time-shifting and adding light Gaussian noise to
+   the raw audio before feature extraction (train-time only - the
+   evaluation/held-out audio is never augmented) gives the classifier
+   several slightly different versions of the same recording, which
+   on this little data measurably improves generalization on top of
+   everything else.
+
+Plain standardized hard-label training on top of all of this already
+beats every knowledge-distillation variant tried (the extra signal in
+78 segment-pooled, gain-normalized features made the distillation step
+that helped an earlier 13-feature, whole-clip-mean version of this
+model actively counterproductive here), so this script doesn't do
+that.
 
 Expects a directory of one subfolder per keyword, each full of 16kHz
 mono 16-bit PCM WAV recordings of that keyword:
@@ -65,6 +76,9 @@ NUM_FEATURES = NUM_SEGMENTS * NUM_BANDS  # 78
 NUM_HIDDEN = 16
 NUM_CLASSES = 8
 Q15_SCALE = 1 << 15
+AUG_COPIES_PER_CLIP = 2
+AUG_MAX_SHIFT_SAMPLES = 1600  # ~0.1s at 16kHz
+AUG_NOISE_STD = 300  # relative to +/-32768 full scale
 
 
 def to_hex16(value: int) -> str:
@@ -78,19 +92,42 @@ def write_mem(path: str, values) -> None:
             f.write(to_hex16(int(round(v))) + "\n")
 
 
-def load_dataset(data_dir: Path, classes: list):
-    """Exactly what segment_buffer.v + dense_hidden.v see in hardware:
-    6 time segments of 13 Mel bands each, mean-pooled per segment."""
-    X, labels = [], []
+def load_raw_dataset(data_dir: Path, classes: list):
+    """Raw waveforms and labels, not yet turned into features - kept
+    around (rather than just their pooled features) so augment_and_
+    extract can make several differently time-shifted/noised copies of
+    each training clip."""
+    samples, labels = [], []
     for class_idx, name in enumerate(classes):
         class_dir = data_dir / name
         wavs = sorted(class_dir.glob("*.wav"))
         if not wavs:
             print(f"warning: no .wav files found in {class_dir}", file=sys.stderr)
         for wav_path in wavs:
-            X.append(extract_segments(load_wav(str(wav_path))))
+            samples.append(load_wav(str(wav_path)))
             labels.append(class_idx)
-    return np.array(X), np.array(labels)
+    return samples, np.array(labels)
+
+
+def augment_clip(samples: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
+    shift = rng.randint(-AUG_MAX_SHIFT_SAMPLES, AUG_MAX_SHIFT_SAMPLES + 1)
+    out = np.roll(samples, shift)
+    out = out + rng.normal(0, AUG_NOISE_STD, size=out.shape)
+    return out
+
+
+def extract_training_features(samples_list: list, labels: np.ndarray, seed: int):
+    """The real clip plus AUG_COPIES_PER_CLIP augmented copies of each,
+    all carrying the same label."""
+    rng = np.random.RandomState(seed)
+    X, y = [], []
+    for samples, label in zip(samples_list, labels):
+        X.append(extract_segments(samples))
+        y.append(label)
+        for _ in range(AUG_COPIES_PER_CLIP):
+            X.append(extract_segments(augment_clip(samples, rng)))
+            y.append(label)
+    return np.array(X), np.array(y)
 
 
 def fold_scaler_into_first_layer(clf: MLPClassifier, scaler: StandardScaler):
@@ -130,23 +167,31 @@ def main() -> None:
         parser.error(f"Need exactly {NUM_CLASSES} classes, got {len(classes)}: {classes}")
 
     print(f"Classes (keyword_id 0..{NUM_CLASSES - 1}): {classes}")
-    X, y = load_dataset(data_dir, classes)
-    if len(X) == 0:
+    raw_samples, y_all = load_raw_dataset(data_dir, classes)
+    if len(raw_samples) == 0:
         parser.error(f"No training data found under {data_dir}")
-    print(f"Loaded {len(y)} examples across {len(set(y.tolist()))} classes")
+    print(f"Loaded {len(y_all)} examples across {len(set(y_all.tolist()))} classes")
 
-    # Honest held-out estimate: standardize and train on an 80/20 split
-    # that never touches the weights actually shipped below.
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=args.seed)
+    # Honest held-out estimate: split the raw clips first, augment only
+    # the training side, and evaluate on clean, un-augmented held-out
+    # audio - this never touches the weights actually shipped below.
+    idx_tr, idx_te = train_test_split(
+        np.arange(len(y_all)), test_size=0.2, stratify=y_all, random_state=args.seed)
+    X_tr, y_tr = extract_training_features([raw_samples[i] for i in idx_tr], y_all[idx_tr], args.seed)
+    X_te = np.array([extract_segments(raw_samples[i]) for i in idx_te])
+    y_te = y_all[idx_te]
+
     scaler_eval = StandardScaler().fit(X_tr)
     eval_clf = train_classifier(scaler_eval.transform(X_tr), y_tr, args.seed)
     held_out_acc = eval_clf.score(scaler_eval.transform(X_te), y_te)
-    print(f"Held-out accuracy estimate (80/20 split): {held_out_acc:.3f}")
+    print(f"Held-out accuracy estimate (80/20 split, clean held-out audio): {held_out_acc:.3f}")
 
-    # Final shipped weights: same pipeline, trained on every example.
+    # Final shipped weights: same pipeline, trained (with augmentation)
+    # on every example.
+    X, y = extract_training_features(raw_samples, y_all, args.seed)
     scaler = StandardScaler().fit(X)
     clf = train_classifier(scaler.transform(X), y, args.seed)
-    print(f"Final model training accuracy (all data): {clf.score(scaler.transform(X), y):.3f}")
+    print(f"Final model training accuracy (all data + augmented copies): {clf.score(scaler.transform(X), y):.3f}")
 
     hidden_w, hidden_b = fold_scaler_into_first_layer(clf, scaler)
     output_w, output_b = clf.coefs_[1], clf.intercepts_[1]
