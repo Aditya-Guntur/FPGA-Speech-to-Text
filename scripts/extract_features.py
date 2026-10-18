@@ -126,24 +126,81 @@ SEG_LEN = 2048  # cycles/samples per segment - see segment_buffer.v
 CANONICAL_SAMPLES = NUM_SEGMENTS * SEG_LEN + NUM_TAPS - 1
 
 
-def extract_segments(samples: np.ndarray) -> np.ndarray:
-    """Mirrors segment_buffer.v: pads or truncates to a fixed-length
-    window, then mean-pools each of NUM_SEGMENTS equal-length chunks of
-    frames separately instead of averaging the whole clip into one
-    vector, so the classifier gets to see roughly how the Mel features
-    evolve over the word instead of only their overall average.
-    Returns a single (NUM_SEGMENTS * NUM_BANDS,) vector, oldest segment
-    first - the same flattening order segment_buffer.v outputs."""
-    if len(samples) < CANONICAL_SAMPLES:
-        samples = np.concatenate([samples, np.zeros(CANONICAL_SAMPLES - len(samples))])
-    else:
-        samples = samples[:CANONICAL_SAMPLES]
+# log2(median per-utterance total energy) over the real training set was
+# ~14.76 - the nearest integer bit position gain_normalize.v targets.
+GAIN_TARGET_LOG2 = 15
+GAIN_MAX_SHIFT = 3
 
+
+def gain_normalize(features: np.ndarray) -> np.ndarray:
+    """Bit-exact match for gain_normalize.v: true per-utterance division is
+    expensive in fixed-point RTL, so instead this finds the position of the
+    highest set bit in the total energy (a priority encoder) and shifts
+    every feature by up to +/-GAIN_MAX_SHIFT bits to bring that total back
+    toward a fixed reference magnitude - the same idea as floating-point
+    mantissa normalization. Must be called on already-quantized integer
+    values (what segment_buffer.v actually outputs), not raw floats, for
+    the shift amount to match the hardware exactly."""
+    total = int(round(features.sum()))
+    if total <= 0:
+        return features
+    msb_pos = total.bit_length() - 1
+    shift = max(-GAIN_MAX_SHIFT, min(GAIN_MAX_SHIFT, GAIN_TARGET_LOG2 - msb_pos))
+    if shift >= 0:
+        shifted = features * (1 << shift)
+    else:
+        shifted = np.floor(features / (1 << -shift))
+    return np.clip(shifted, -32768, 32767)
+
+
+ONSET_BLOCK_LEN = 256
+# 65th percentile of per-block sum(|sample|) over the real training set -
+# see onset_trigger.v's THRESHOLD.
+ONSET_THRESHOLD = 51739
+
+
+def onset_align(samples: np.ndarray) -> np.ndarray:
+    """Bit-exact match for onset_trigger.v + segment_buffer.v's
+    start_enable gating: a real recording pads the spoken word with a
+    variable amount of silence, so starting the classifier's window at
+    sample 0 of every clip means the word lands in a different part of
+    the window on every recording - the single biggest source of noise
+    in this classifier's input before this was added. Scans forward in
+    fixed 256-sample blocks (matching the hardware's energy accumulator)
+    for the first one whose sum(|sample|) crosses ONSET_THRESHOLD, then
+    returns a fixed-length window starting there - streaming-feasible
+    (no look-ahead into the clip), unlike centering on the clip's single
+    loudest point, which would need to see the whole clip first."""
+    n_blocks = max(1, len(samples) // ONSET_BLOCK_LEN)
+    start = 0
+    for i in range(n_blocks):
+        block = samples[i * ONSET_BLOCK_LEN:(i + 1) * ONSET_BLOCK_LEN]
+        if np.sum(np.abs(block)) >= ONSET_THRESHOLD:
+            start = i * ONSET_BLOCK_LEN
+            break
+    windowed = samples[start:start + CANONICAL_SAMPLES]
+    if len(windowed) < CANONICAL_SAMPLES:
+        windowed = np.concatenate([windowed, np.zeros(CANONICAL_SAMPLES - len(windowed))])
+    return windowed
+
+
+def extract_segments(samples: np.ndarray) -> np.ndarray:
+    """Mirrors onset_trigger.v + segment_buffer.v + gain_normalize.v: finds
+    where the word actually starts (see onset_align), mean-pools each of
+    NUM_SEGMENTS equal-length chunks of frames from that point separately
+    instead of averaging the whole window into one vector (so the
+    classifier gets to see roughly how the Mel features evolve over the
+    word, not just their overall average), then applies the same
+    per-utterance gain normalization the hardware does. Returns a single
+    (NUM_SEGMENTS * NUM_BANDS,) vector, oldest segment first - the same
+    flattening order segment_buffer.v outputs."""
+    samples = onset_align(samples)
     frames = extract_frames(samples)
     if len(frames) == 0:
         return np.zeros(NUM_SEGMENTS * NUM_BANDS)
     chunks = np.array_split(frames, NUM_SEGMENTS)
-    return np.concatenate([chunk.mean(axis=0) for chunk in chunks])
+    pooled = np.concatenate([chunk.mean(axis=0) for chunk in chunks])
+    return gain_normalize(pooled)
 
 
 if __name__ == "__main__":
