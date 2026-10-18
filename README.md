@@ -111,7 +111,13 @@ directory, so run these from the repo root.
   ```
 
   expects `data/<keyword>/*.wav` (16kHz mono 16-bit PCM) for each of the 8
-  classes above.
+  classes above. Internally it standardizes the 13 Mel features before
+  training (folding that back into the hidden layer's weights afterward,
+  so the exported `.mem` files still expect raw, unstandardized input)
+  and distills a bigger model trained on richer per-clip statistics into
+  the hardware-shaped 13->16->8 network via out-of-fold soft labels -
+  both measurably outperform training the small network directly on raw
+  features and hard labels at this model's size.
 
 ## Diagrams and training results
 
@@ -129,13 +135,16 @@ peaks at bin 3 as expected:
 <img src="examples/dft_validation.png" width="420" alt="DFT bin validation">
 
 The shipped `hidden_weights.mem` / `hidden_biases.mem` / `weights.mem` /
-`biases.mem` are real weights from `scripts/train.py`, trained on 480 clips
-(60 per class) of the `up`/`down`/`right`/`left`/`stop`/`go`/`yes`/`no`
-keywords from the [Speech
+`biases.mem` are real weights from `scripts/train.py`, trained on 3276
+real clips (roughly 400 per class) of the
+`up`/`down`/`right`/`left`/`stop`/`go`/`yes`/`no` keywords from the
+[Speech
 Commands](https://huggingface.co/datasets/pollen-robotics/speech-commands-v0.02)
 dataset, run through the exact feature pipeline `extract_features.py`
-mirrors from the hardware. Held-out confusion matrix and training loss curve
-for that run:
+mirrors from the hardware - standardized and distilled per the notes
+above. Held-out accuracy on an 80/20 split is 0.357 (vs. 0.125 for
+random guessing across 8 classes). Confusion matrix and training loss
+curve for that run:
 
 <img src="examples/confusion_matrix.png" width="440" alt="Confusion matrix">
 <img src="examples/training_loss.png" width="440" alt="Training loss curve">
