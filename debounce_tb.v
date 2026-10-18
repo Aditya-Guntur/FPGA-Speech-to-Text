@@ -26,17 +26,23 @@ module tb_debounce;
         
         #20 rst = 0; // Release reset
         
-        // Simulate noisy input switching rapidly
+        // Simulate noisy input switching rapidly. debounce.v's counter only
+        // advances on posedge clk, so "hold for debounce time" means
+        // DEBOUNCE_TIME clock *cycles*, not time units - at a 10ns period
+        // the previous repeat(50000) #1 only held each value for 5000
+        // cycles (50000ns), 10x short of the 50000-cycle DEBOUNCE_TIME
+        // parameter, so keyword_output could never actually update: this
+        // test could not have passed as written.
         #10 keyword_input = 4'd3;
         #10 keyword_input = 4'd2; // Noise
         #10 keyword_input = 4'd3; // Correct keyword, starts debounce
-        repeat(50000) #1 keyword_input = 4'd3; // Hold for debounce time
-        
+        repeat(50005) #10 keyword_input = 4'd3; // Hold for DEBOUNCE_TIME cycles
+
         #10 keyword_input = 4'd5; // Change to another keyword
-        repeat(50000) #1 keyword_input = 4'd5; // Hold for debounce time
+        repeat(50005) #10 keyword_input = 4'd5; // Hold for DEBOUNCE_TIME cycles
 
         #10 keyword_input = 4'd7; // Another change
-        repeat(50000) #1 keyword_input = 4'd7; // Hold for debounce time
+        repeat(50005) #10 keyword_input = 4'd7; // Hold for DEBOUNCE_TIME cycles
         
         #50;
         
@@ -44,7 +50,7 @@ module tb_debounce;
         $display("Debounce Test Results:");
         $display("Final Keyword Output: %d", keyword_output);
         
-        #10 $stop; // End simulation
+        #10 $finish; // End simulation
     end
 
 endmodule
