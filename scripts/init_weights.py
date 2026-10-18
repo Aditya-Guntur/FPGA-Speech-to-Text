@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate default-initialized weight/bias .mem files for the two-layer
-classifier: dense_hidden.v (13 Mel features -> 16 hidden units) and
-matrix_multiplication.v (16 hidden units -> 8 classes).
+classifier: dense_hidden.v (78 segment-pooled Mel features -> 16 hidden
+units) and matrix_multiplication.v (16 hidden units -> 8 classes).
 
 Produces small, deterministic (seeded) values in the Q1.15 fixed-point
 format the hardware's `>>> 15` shift expects, written as 16-bit hex -
@@ -15,7 +15,7 @@ Usage: python scripts/init_weights.py [--seed 0]
 import argparse
 import struct
 
-NUM_FEATURES = 13
+NUM_FEATURES = 78  # 6 segments x 13 Mel bands - see segment_buffer.v
 NUM_HIDDEN = 16
 NUM_CLASSES = 8
 Q15_SCALE = 1 << 15

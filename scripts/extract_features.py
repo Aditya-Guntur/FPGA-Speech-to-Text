@@ -113,11 +113,37 @@ def extract_frames(samples: np.ndarray) -> np.ndarray:
 
 def extract_pooled(samples: np.ndarray) -> np.ndarray:
     """Mean-pools Mel features across the whole clip into one 13-value
-    vector, for training a per-utterance (not per-sample) classifier."""
+    vector. Mostly useful for quick inspection (see the CLI below) - the
+    classifier itself uses extract_segments, not this."""
     frames = extract_frames(samples)
     if len(frames) == 0:
         return np.zeros(NUM_BANDS)
     return frames.mean(axis=0)
+
+
+NUM_SEGMENTS = 6
+SEG_LEN = 2048  # cycles/samples per segment - see segment_buffer.v
+CANONICAL_SAMPLES = NUM_SEGMENTS * SEG_LEN + NUM_TAPS - 1
+
+
+def extract_segments(samples: np.ndarray) -> np.ndarray:
+    """Mirrors segment_buffer.v: pads or truncates to a fixed-length
+    window, then mean-pools each of NUM_SEGMENTS equal-length chunks of
+    frames separately instead of averaging the whole clip into one
+    vector, so the classifier gets to see roughly how the Mel features
+    evolve over the word instead of only their overall average.
+    Returns a single (NUM_SEGMENTS * NUM_BANDS,) vector, oldest segment
+    first - the same flattening order segment_buffer.v outputs."""
+    if len(samples) < CANONICAL_SAMPLES:
+        samples = np.concatenate([samples, np.zeros(CANONICAL_SAMPLES - len(samples))])
+    else:
+        samples = samples[:CANONICAL_SAMPLES]
+
+    frames = extract_frames(samples)
+    if len(frames) == 0:
+        return np.zeros(NUM_SEGMENTS * NUM_BANDS)
+    chunks = np.array_split(frames, NUM_SEGMENTS)
+    return np.concatenate([chunk.mean(axis=0) for chunk in chunks])
 
 
 if __name__ == "__main__":
