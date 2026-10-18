@@ -101,23 +101,26 @@ module top_module (
         .hidden_flat_14(hidden_14), .hidden_flat_15(hidden_15)
     );
 
-    // Hidden-layer ReLU activation
-    relu hidden_relu_inst_0(.clk(clk), .nn_input(hidden_input_0), .relu_output(hidden_relu_output_0));
-    relu hidden_relu_inst_1(.clk(clk), .nn_input(hidden_input_1), .relu_output(hidden_relu_output_1));
-    relu hidden_relu_inst_2(.clk(clk), .nn_input(hidden_input_2), .relu_output(hidden_relu_output_2));
-    relu hidden_relu_inst_3(.clk(clk), .nn_input(hidden_input_3), .relu_output(hidden_relu_output_3));
-    relu hidden_relu_inst_4(.clk(clk), .nn_input(hidden_input_4), .relu_output(hidden_relu_output_4));
-    relu hidden_relu_inst_5(.clk(clk), .nn_input(hidden_input_5), .relu_output(hidden_relu_output_5));
-    relu hidden_relu_inst_6(.clk(clk), .nn_input(hidden_input_6), .relu_output(hidden_relu_output_6));
-    relu hidden_relu_inst_7(.clk(clk), .nn_input(hidden_input_7), .relu_output(hidden_relu_output_7));
-    relu hidden_relu_inst_8(.clk(clk), .nn_input(hidden_input_8), .relu_output(hidden_relu_output_8));
-    relu hidden_relu_inst_9(.clk(clk), .nn_input(hidden_input_9), .relu_output(hidden_relu_output_9));
-    relu hidden_relu_inst_10(.clk(clk), .nn_input(hidden_input_10), .relu_output(hidden_relu_output_10));
-    relu hidden_relu_inst_11(.clk(clk), .nn_input(hidden_input_11), .relu_output(hidden_relu_output_11));
-    relu hidden_relu_inst_12(.clk(clk), .nn_input(hidden_input_12), .relu_output(hidden_relu_output_12));
-    relu hidden_relu_inst_13(.clk(clk), .nn_input(hidden_input_13), .relu_output(hidden_relu_output_13));
-    relu hidden_relu_inst_14(.clk(clk), .nn_input(hidden_input_14), .relu_output(hidden_relu_output_14));
-    relu hidden_relu_inst_15(.clk(clk), .nn_input(hidden_input_15), .relu_output(hidden_relu_output_15));
+    // Hidden-layer ReLU activation. Was wired to hidden_input_X /
+    // hidden_relu_output_X, neither of which was declared anywhere, so
+    // Verilog silently auto-created them as unconnected 1-bit wires -
+    // every hidden-layer ReLU computed into a void.
+    relu hidden_relu_inst_0(.clk(clk), .nn_input(hidden_0), .relu_output(hidden_relu_0));
+    relu hidden_relu_inst_1(.clk(clk), .nn_input(hidden_1), .relu_output(hidden_relu_1));
+    relu hidden_relu_inst_2(.clk(clk), .nn_input(hidden_2), .relu_output(hidden_relu_2));
+    relu hidden_relu_inst_3(.clk(clk), .nn_input(hidden_3), .relu_output(hidden_relu_3));
+    relu hidden_relu_inst_4(.clk(clk), .nn_input(hidden_4), .relu_output(hidden_relu_4));
+    relu hidden_relu_inst_5(.clk(clk), .nn_input(hidden_5), .relu_output(hidden_relu_5));
+    relu hidden_relu_inst_6(.clk(clk), .nn_input(hidden_6), .relu_output(hidden_relu_6));
+    relu hidden_relu_inst_7(.clk(clk), .nn_input(hidden_7), .relu_output(hidden_relu_7));
+    relu hidden_relu_inst_8(.clk(clk), .nn_input(hidden_8), .relu_output(hidden_relu_8));
+    relu hidden_relu_inst_9(.clk(clk), .nn_input(hidden_9), .relu_output(hidden_relu_9));
+    relu hidden_relu_inst_10(.clk(clk), .nn_input(hidden_10), .relu_output(hidden_relu_10));
+    relu hidden_relu_inst_11(.clk(clk), .nn_input(hidden_11), .relu_output(hidden_relu_11));
+    relu hidden_relu_inst_12(.clk(clk), .nn_input(hidden_12), .relu_output(hidden_relu_12));
+    relu hidden_relu_inst_13(.clk(clk), .nn_input(hidden_13), .relu_output(hidden_relu_13));
+    relu hidden_relu_inst_14(.clk(clk), .nn_input(hidden_14), .relu_output(hidden_relu_14));
+    relu hidden_relu_inst_15(.clk(clk), .nn_input(hidden_15), .relu_output(hidden_relu_15));
 
     // Output Layer
    matrix_multiplication nn_inst (
@@ -136,23 +139,27 @@ module top_module (
     .output_probabilities_flat_6(nn_out_6), .output_probabilities_flat_7(nn_out_7)
 );
 
-    // Instantiate ReLU Activation Module
-    relu relu_inst_0(.clk(clk), .nn_input(nn_input_0), .relu_output(relu_output_0));
-    relu relu_inst_1(.clk(clk), .nn_input(nn_input_1), .relu_output(relu_output_1));
-    relu relu_inst_2(.clk(clk), .nn_input(nn_input_2), .relu_output(relu_output_2));
-    relu relu_inst_3(.clk(clk), .nn_input(nn_input_3), .relu_output(relu_output_3));
-    relu relu_inst_4(.clk(clk), .nn_input(nn_input_4), .relu_output(relu_output_4));
-    relu relu_inst_5(.clk(clk), .nn_input(nn_input_5), .relu_output(relu_output_5));
-    relu relu_inst_6(.clk(clk), .nn_input(nn_input_6), .relu_output(relu_output_6));
-    relu relu_inst_7(.clk(clk), .nn_input(nn_input_7), .relu_output(relu_output_7));
+    // Output-layer ReLU Activation. Same bug as the hidden layer above:
+    // wired to nn_input_X / relu_output_X, neither declared anywhere, so
+    // Verilog auto-created unconnected 1-bit wires - ReLU computed into a
+    // void and softmax ran on raw unactivated values instead.
+    relu relu_inst_0(.clk(clk), .nn_input(nn_out_0), .relu_output(relu_out_0));
+    relu relu_inst_1(.clk(clk), .nn_input(nn_out_1), .relu_output(relu_out_1));
+    relu relu_inst_2(.clk(clk), .nn_input(nn_out_2), .relu_output(relu_out_2));
+    relu relu_inst_3(.clk(clk), .nn_input(nn_out_3), .relu_output(relu_out_3));
+    relu relu_inst_4(.clk(clk), .nn_input(nn_out_4), .relu_output(relu_out_4));
+    relu relu_inst_5(.clk(clk), .nn_input(nn_out_5), .relu_output(relu_out_5));
+    relu relu_inst_6(.clk(clk), .nn_input(nn_out_6), .relu_output(relu_out_6));
+    relu relu_inst_7(.clk(clk), .nn_input(nn_out_7), .relu_output(relu_out_7));
 
-    // Instantiate Softmax Module
+    // Softmax Module - now actually reads the ReLU outputs instead of the
+    // raw neuron outputs.
     softmax_lut softmax_inst (
         .clk(clk),
-        .input_values_0(nn_out_0), .input_values_1(nn_out_1),
-        .input_values_2(nn_out_2), .input_values_3(nn_out_3),
-        .input_values_4(nn_out_4), .input_values_5(nn_out_5),
-        .input_values_6(nn_out_6), .input_values_7(nn_out_7),
+        .input_values_0(relu_out_0), .input_values_1(relu_out_1),
+        .input_values_2(relu_out_2), .input_values_3(relu_out_3),
+        .input_values_4(relu_out_4), .input_values_5(relu_out_5),
+        .input_values_6(relu_out_6), .input_values_7(relu_out_7),
         .output_probabilities_0(softmax_out_0), .output_probabilities_1(softmax_out_1),
         .output_probabilities_2(softmax_out_2), .output_probabilities_3(softmax_out_3),
         .output_probabilities_4(softmax_out_4), .output_probabilities_5(softmax_out_5),
