@@ -209,8 +209,8 @@ always @(posedge clk or posedge rst) begin
             4'd3: {led_r, led_g, led_b} <= 3'b001;  // BLUE → Left
             4'd4: {led_r, led_g, led_b} <= 3'b110;  // YELLOW → Stop
             4'd5: {led_r, led_g, led_b} <= 3'b011;  // CYAN → Go
-            4'd6: {led_r, led_g, led_b} <= 3'b101;  // MAGENTA → Dharwad
-            4'd7: {led_r, led_g, led_b} <= 3'b111;  // WHITE → Hubli
+            4'd6: {led_r, led_g, led_b} <= 3'b101;  // MAGENTA → Yes
+            4'd7: {led_r, led_g, led_b} <= 3'b111;  // WHITE → No
             4'd8: {led_r, led_g, led_b} <= clk ? 3'b100 : 3'b000; // BLINKING RED → reserved
             4'd9: {led_r, led_g, led_b} <= clk ? 3'b010 : 3'b000; // BLINKING GREEN → reserved
             default: {led_r, led_g, led_b} <= 3'b000;  // Default OFF
