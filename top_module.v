@@ -19,6 +19,20 @@ module top_module (
     wire [15:0] mel_out_4, mel_out_5, mel_out_6, mel_out_7;
     wire [15:0] mel_out_8, mel_out_9, mel_out_10, mel_out_11, mel_out_12;
 
+    // 6 segments x 13 Mel bands = 78 - see segment_buffer.v.
+    wire signed [15:0] seg_feat_0, seg_feat_1, seg_feat_2, seg_feat_3, seg_feat_4, seg_feat_5;
+    wire signed [15:0] seg_feat_6, seg_feat_7, seg_feat_8, seg_feat_9, seg_feat_10, seg_feat_11;
+    wire signed [15:0] seg_feat_12, seg_feat_13, seg_feat_14, seg_feat_15, seg_feat_16, seg_feat_17;
+    wire signed [15:0] seg_feat_18, seg_feat_19, seg_feat_20, seg_feat_21, seg_feat_22, seg_feat_23;
+    wire signed [15:0] seg_feat_24, seg_feat_25, seg_feat_26, seg_feat_27, seg_feat_28, seg_feat_29;
+    wire signed [15:0] seg_feat_30, seg_feat_31, seg_feat_32, seg_feat_33, seg_feat_34, seg_feat_35;
+    wire signed [15:0] seg_feat_36, seg_feat_37, seg_feat_38, seg_feat_39, seg_feat_40, seg_feat_41;
+    wire signed [15:0] seg_feat_42, seg_feat_43, seg_feat_44, seg_feat_45, seg_feat_46, seg_feat_47;
+    wire signed [15:0] seg_feat_48, seg_feat_49, seg_feat_50, seg_feat_51, seg_feat_52, seg_feat_53;
+    wire signed [15:0] seg_feat_54, seg_feat_55, seg_feat_56, seg_feat_57, seg_feat_58, seg_feat_59;
+    wire signed [15:0] seg_feat_60, seg_feat_61, seg_feat_62, seg_feat_63, seg_feat_64, seg_feat_65;
+    wire signed [15:0] seg_feat_66, seg_feat_67, seg_feat_68, seg_feat_69, seg_feat_70, seg_feat_71;
+    wire signed [15:0] seg_feat_72, seg_feat_73, seg_feat_74, seg_feat_75, seg_feat_76, seg_feat_77;
 
     wire [15:0] hidden_0, hidden_1, hidden_2, hidden_3;
     wire [15:0] hidden_4, hidden_5, hidden_6, hidden_7;
@@ -85,20 +99,80 @@ module top_module (
         .mel_features_12(mel_out_12)
     );
 
-    // Hidden Layer - 13 real Mel features in, 16 hidden pre-activations
-    // out. The classifier used to be a single linear layer straight from
-    // features to class scores; this is the first layer of an actual
-    // two-layer MLP, same ReLU module reused for its activation below.
+    // Segment Buffer - pools the streaming per-sample Mel output into 6
+    // time segments (~2048 cycles each), so the classifier sees enough of
+    // a spoken word's shape over time instead of one instantaneous frame.
+    // Classifying each raw per-sample Mel vector independently (the only
+    // thing dense_hidden could see before this) discards essentially all
+    // temporal structure - the same failure mode small-footprint keyword
+    // spotting literature (e.g. Zhang et al., "Hello Edge: Keyword
+    // Spotting on Microcontrollers") identifies as the main weakness of
+    // plain per-frame/pooled-feature DNNs versus anything that keeps time
+    // context.
+    segment_buffer segbuf_inst (
+        .clk(clk), .rst(rst),
+        .mel_features_0(mel_out_0), .mel_features_1(mel_out_1), .mel_features_2(mel_out_2), .mel_features_3(mel_out_3), .mel_features_4(mel_out_4), .mel_features_5(mel_out_5), .mel_features_6(mel_out_6), .mel_features_7(mel_out_7), .mel_features_8(mel_out_8), .mel_features_9(mel_out_9), .mel_features_10(mel_out_10), .mel_features_11(mel_out_11), .mel_features_12(mel_out_12),
+        .segment_features_0(seg_feat_0), .segment_features_1(seg_feat_1), .segment_features_2(seg_feat_2), .segment_features_3(seg_feat_3), .segment_features_4(seg_feat_4), .segment_features_5(seg_feat_5),
+        .segment_features_6(seg_feat_6), .segment_features_7(seg_feat_7), .segment_features_8(seg_feat_8), .segment_features_9(seg_feat_9), .segment_features_10(seg_feat_10), .segment_features_11(seg_feat_11),
+        .segment_features_12(seg_feat_12), .segment_features_13(seg_feat_13), .segment_features_14(seg_feat_14), .segment_features_15(seg_feat_15), .segment_features_16(seg_feat_16), .segment_features_17(seg_feat_17),
+        .segment_features_18(seg_feat_18), .segment_features_19(seg_feat_19), .segment_features_20(seg_feat_20), .segment_features_21(seg_feat_21), .segment_features_22(seg_feat_22), .segment_features_23(seg_feat_23),
+        .segment_features_24(seg_feat_24), .segment_features_25(seg_feat_25), .segment_features_26(seg_feat_26), .segment_features_27(seg_feat_27), .segment_features_28(seg_feat_28), .segment_features_29(seg_feat_29),
+        .segment_features_30(seg_feat_30), .segment_features_31(seg_feat_31), .segment_features_32(seg_feat_32), .segment_features_33(seg_feat_33), .segment_features_34(seg_feat_34), .segment_features_35(seg_feat_35),
+        .segment_features_36(seg_feat_36), .segment_features_37(seg_feat_37), .segment_features_38(seg_feat_38), .segment_features_39(seg_feat_39), .segment_features_40(seg_feat_40), .segment_features_41(seg_feat_41),
+        .segment_features_42(seg_feat_42), .segment_features_43(seg_feat_43), .segment_features_44(seg_feat_44), .segment_features_45(seg_feat_45), .segment_features_46(seg_feat_46), .segment_features_47(seg_feat_47),
+        .segment_features_48(seg_feat_48), .segment_features_49(seg_feat_49), .segment_features_50(seg_feat_50), .segment_features_51(seg_feat_51), .segment_features_52(seg_feat_52), .segment_features_53(seg_feat_53),
+        .segment_features_54(seg_feat_54), .segment_features_55(seg_feat_55), .segment_features_56(seg_feat_56), .segment_features_57(seg_feat_57), .segment_features_58(seg_feat_58), .segment_features_59(seg_feat_59),
+        .segment_features_60(seg_feat_60), .segment_features_61(seg_feat_61), .segment_features_62(seg_feat_62), .segment_features_63(seg_feat_63), .segment_features_64(seg_feat_64), .segment_features_65(seg_feat_65),
+        .segment_features_66(seg_feat_66), .segment_features_67(seg_feat_67), .segment_features_68(seg_feat_68), .segment_features_69(seg_feat_69), .segment_features_70(seg_feat_70), .segment_features_71(seg_feat_71),
+        .segment_features_72(seg_feat_72), .segment_features_73(seg_feat_73), .segment_features_74(seg_feat_74), .segment_features_75(seg_feat_75), .segment_features_76(seg_feat_76), .segment_features_77(seg_feat_77)
+    );
+
+    // Hidden Layer - 78 segment-pooled Mel features in, 16 hidden
+    // pre-activations out. The classifier used to take 13 raw per-sample
+    // Mel features straight from mel_filterbank; this is the first layer
+    // of the same two-layer MLP, just fed from segment_buffer instead.
     dense_hidden hidden_inst (
         .clk(clk),
 
-        .mfcc_features_flat_0(mel_out_0), .mfcc_features_flat_1(mel_out_1),
-        .mfcc_features_flat_2(mel_out_2), .mfcc_features_flat_3(mel_out_3),
-        .mfcc_features_flat_4(mel_out_4), .mfcc_features_flat_5(mel_out_5),
-        .mfcc_features_flat_6(mel_out_6), .mfcc_features_flat_7(mel_out_7),
-        .mfcc_features_flat_8(mel_out_8), .mfcc_features_flat_9(mel_out_9),
-        .mfcc_features_flat_10(mel_out_10), .mfcc_features_flat_11(mel_out_11),
-        .mfcc_features_flat_12(mel_out_12),
+        .mfcc_features_flat_0(seg_feat_0), .mfcc_features_flat_1(seg_feat_1),
+        .mfcc_features_flat_2(seg_feat_2), .mfcc_features_flat_3(seg_feat_3),
+        .mfcc_features_flat_4(seg_feat_4), .mfcc_features_flat_5(seg_feat_5),
+        .mfcc_features_flat_6(seg_feat_6), .mfcc_features_flat_7(seg_feat_7),
+        .mfcc_features_flat_8(seg_feat_8), .mfcc_features_flat_9(seg_feat_9),
+        .mfcc_features_flat_10(seg_feat_10), .mfcc_features_flat_11(seg_feat_11),
+        .mfcc_features_flat_12(seg_feat_12), .mfcc_features_flat_13(seg_feat_13),
+        .mfcc_features_flat_14(seg_feat_14), .mfcc_features_flat_15(seg_feat_15),
+        .mfcc_features_flat_16(seg_feat_16), .mfcc_features_flat_17(seg_feat_17),
+        .mfcc_features_flat_18(seg_feat_18), .mfcc_features_flat_19(seg_feat_19),
+        .mfcc_features_flat_20(seg_feat_20), .mfcc_features_flat_21(seg_feat_21),
+        .mfcc_features_flat_22(seg_feat_22), .mfcc_features_flat_23(seg_feat_23),
+        .mfcc_features_flat_24(seg_feat_24), .mfcc_features_flat_25(seg_feat_25),
+        .mfcc_features_flat_26(seg_feat_26), .mfcc_features_flat_27(seg_feat_27),
+        .mfcc_features_flat_28(seg_feat_28), .mfcc_features_flat_29(seg_feat_29),
+        .mfcc_features_flat_30(seg_feat_30), .mfcc_features_flat_31(seg_feat_31),
+        .mfcc_features_flat_32(seg_feat_32), .mfcc_features_flat_33(seg_feat_33),
+        .mfcc_features_flat_34(seg_feat_34), .mfcc_features_flat_35(seg_feat_35),
+        .mfcc_features_flat_36(seg_feat_36), .mfcc_features_flat_37(seg_feat_37),
+        .mfcc_features_flat_38(seg_feat_38), .mfcc_features_flat_39(seg_feat_39),
+        .mfcc_features_flat_40(seg_feat_40), .mfcc_features_flat_41(seg_feat_41),
+        .mfcc_features_flat_42(seg_feat_42), .mfcc_features_flat_43(seg_feat_43),
+        .mfcc_features_flat_44(seg_feat_44), .mfcc_features_flat_45(seg_feat_45),
+        .mfcc_features_flat_46(seg_feat_46), .mfcc_features_flat_47(seg_feat_47),
+        .mfcc_features_flat_48(seg_feat_48), .mfcc_features_flat_49(seg_feat_49),
+        .mfcc_features_flat_50(seg_feat_50), .mfcc_features_flat_51(seg_feat_51),
+        .mfcc_features_flat_52(seg_feat_52), .mfcc_features_flat_53(seg_feat_53),
+        .mfcc_features_flat_54(seg_feat_54), .mfcc_features_flat_55(seg_feat_55),
+        .mfcc_features_flat_56(seg_feat_56), .mfcc_features_flat_57(seg_feat_57),
+        .mfcc_features_flat_58(seg_feat_58), .mfcc_features_flat_59(seg_feat_59),
+        .mfcc_features_flat_60(seg_feat_60), .mfcc_features_flat_61(seg_feat_61),
+        .mfcc_features_flat_62(seg_feat_62), .mfcc_features_flat_63(seg_feat_63),
+        .mfcc_features_flat_64(seg_feat_64), .mfcc_features_flat_65(seg_feat_65),
+        .mfcc_features_flat_66(seg_feat_66), .mfcc_features_flat_67(seg_feat_67),
+        .mfcc_features_flat_68(seg_feat_68), .mfcc_features_flat_69(seg_feat_69),
+        .mfcc_features_flat_70(seg_feat_70), .mfcc_features_flat_71(seg_feat_71),
+        .mfcc_features_flat_72(seg_feat_72), .mfcc_features_flat_73(seg_feat_73),
+        .mfcc_features_flat_74(seg_feat_74), .mfcc_features_flat_75(seg_feat_75),
+        .mfcc_features_flat_76(seg_feat_76), .mfcc_features_flat_77(seg_feat_77),
 
         .hidden_flat_0(hidden_0), .hidden_flat_1(hidden_1),
         .hidden_flat_2(hidden_2), .hidden_flat_3(hidden_3),
