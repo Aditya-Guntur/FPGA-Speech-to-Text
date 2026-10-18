@@ -1,6 +1,11 @@
 module segment_buffer (
     input wire clk,
     input wire rst,
+    // Gates accumulation on onset_trigger.v's output: stays idle (not
+    // accumulating, not advancing) until the word actually starts, so
+    // the 6-segment window lines up with the word instead of starting
+    // from whatever silence happened to precede it in the recording.
+    input wire start_enable,
     input wire [15:0] mel_features_0, input wire [15:0] mel_features_1, input wire [15:0] mel_features_2, input wire [15:0] mel_features_3, input wire [15:0] mel_features_4, input wire [15:0] mel_features_5, input wire [15:0] mel_features_6, input wire [15:0] mel_features_7, input wire [15:0] mel_features_8, input wire [15:0] mel_features_9, input wire [15:0] mel_features_10, input wire [15:0] mel_features_11, input wire [15:0] mel_features_12,
     output reg signed [15:0] segment_features_0,
     output reg signed [15:0] segment_features_1,
@@ -101,6 +106,8 @@ module segment_buffer (
                     segments[k][i] <= 0;
             end
             cycle_count <= 0;
+        end else if (!start_enable) begin
+            // Idle: hold everything at reset state until the word starts.
         end else begin
             mel_features[0] = mel_features_0;
             mel_features[1] = mel_features_1;

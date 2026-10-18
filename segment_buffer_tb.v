@@ -13,7 +13,7 @@ module segment_buffer_tb;
     integer cycle;
 
     segment_buffer uut (
-        .clk(clk), .rst(rst),
+        .clk(clk), .rst(rst), .start_enable(1'b1),
         .mel_features_0(mel_features_0), .mel_features_1(mel_features_1),
         .mel_features_2(mel_features_2), .mel_features_3(mel_features_3),
         .mel_features_4(mel_features_4), .mel_features_5(mel_features_5),
