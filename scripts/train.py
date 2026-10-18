@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
-"""Train the classifier (13 Mel features -> 16 hidden -> 8 classes) on
-real labeled recordings and export the result as hidden_weights.mem /
-hidden_biases.mem / weights.mem / biases.mem, in the exact format and
-layout dense_hidden.v and matrix_multiplication.v expect.
+"""Train the classifier (78 segment-pooled Mel features -> 16 hidden ->
+8 classes) on real labeled recordings and export the result as
+hidden_weights.mem / hidden_biases.mem / weights.mem / biases.mem, in
+the exact format and layout dense_hidden.v and matrix_multiplication.v
+expect.
 
-Three things make a real difference at this model's size (13 inputs,
-one 16-unit hidden layer - fixed by the RTL) with a few thousand real
-recordings:
+Two things make a real difference at this model's size (fixed by the
+RTL: a hidden layer of 16 units) with a few thousand real recordings:
 
-1. Standardizing the 13 Mel features before training. Raw filterbank
+1. Segment-pooling instead of whole-clip mean-pooling. Averaging every
+   frame of a ~1s clip into one vector throws away virtually all of
+   the word's time structure - exactly the weakness small-footprint
+   keyword-spotting literature (e.g. Zhang et al., "Hello Edge:
+   Keyword Spotting on Microcontrollers") identifies in plain DNNs
+   trained on pooled/flattened features. extract_features.
+   extract_segments mean-pools 6 equal time segments separately
+   instead of the whole clip at once (matching segment_buffer.v's
+   hardware buffer exactly), which alone roughly doubled held-out
+   accuracy in testing versus single-vector pooling - from there,
+   plain standardized hard-label training already beats every
+   knowledge-distillation variant tried (the extra signal in 78
+   segment-pooled features made the distillation step that helped the
+   old 13-feature, whole-clip-mean model actively counterproductive
+   here, so this script no longer does it).
+2. Standardizing those 78 features before training. Raw filterbank
    output is badly scaled for gradient descent (some bands run 10-100x
    larger than others) and starves half the ReLU units dead on
    initialization. Standardizing fixes this, and because standardize-
    then-affine is itself affine, the (mean, std) can be folded exactly
    into the hidden layer's weights/bias after training - the hardware
    still sees raw, unstandardized Mel features at runtime.
-2. A short knowledge-distillation step: a much bigger "teacher" model
-   (128+64 hidden units) trained on richer per-clip statistics (mean,
-   std AND max across frames, not just mean) produces soft class
-   probabilities for every training clip via 5-fold out-of-fold
-   cross-validation, so a clip's soft label never comes from a teacher
-   that trained on it. Those probabilities are turned back into extra
-   training examples by resampling a label from each clip's teacher
-   distribution several times (plus the true label), which lets the
-   tiny hardware-shaped student benefit from the teacher's extra
-   capacity/features while keeping its own input/output shape (and
-   therefore its exported .mem sizes) exactly what the RTL expects.
-3. Using every available recording, not a small per-class sample.
 
 Expects a directory of one subfolder per keyword, each full of 16kHz
 mono 16-bit PCM WAV recordings of that keyword:
@@ -51,20 +54,17 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).parent))
-from extract_features import extract_frames, load_wav  # noqa: E402
+from extract_features import extract_segments, load_wav, NUM_SEGMENTS, NUM_BANDS  # noqa: E402
 
-NUM_FEATURES = 13
+NUM_FEATURES = NUM_SEGMENTS * NUM_BANDS  # 78
 NUM_HIDDEN = 16
 NUM_CLASSES = 8
 Q15_SCALE = 1 << 15
-TEACHER_HIDDEN = (128, 64)
-RESAMPLE_K = 8
-RESAMPLE_HARD_FRACTION = 0.3
 
 
 def to_hex16(value: int) -> str:
@@ -78,63 +78,19 @@ def write_mem(path: str, values) -> None:
             f.write(to_hex16(int(round(v))) + "\n")
 
 
-def student_features(frames: np.ndarray) -> np.ndarray:
-    if len(frames) == 0:
-        return np.zeros(NUM_FEATURES)
-    return frames.mean(axis=0)
-
-
-def teacher_features(frames: np.ndarray) -> np.ndarray:
-    if len(frames) == 0:
-        return np.zeros(NUM_FEATURES * 3)
-    return np.concatenate([frames.mean(axis=0), frames.std(axis=0), frames.max(axis=0)])
-
-
 def load_dataset(data_dir: Path, classes: list):
-    student_X, teacher_X, labels = [], [], []
+    """Exactly what segment_buffer.v + dense_hidden.v see in hardware:
+    6 time segments of 13 Mel bands each, mean-pooled per segment."""
+    X, labels = [], []
     for class_idx, name in enumerate(classes):
         class_dir = data_dir / name
         wavs = sorted(class_dir.glob("*.wav"))
         if not wavs:
             print(f"warning: no .wav files found in {class_dir}", file=sys.stderr)
         for wav_path in wavs:
-            frames = extract_frames(load_wav(str(wav_path)))
-            student_X.append(student_features(frames))
-            teacher_X.append(teacher_features(frames))
+            X.append(extract_segments(load_wav(str(wav_path))))
             labels.append(class_idx)
-    return np.array(student_X), np.array(teacher_X), np.array(labels)
-
-
-def out_of_fold_soft_labels(teacher_X_scaled: np.ndarray, y: np.ndarray, seed: int, n_splits: int = 5) -> np.ndarray:
-    soft = np.zeros((len(y), NUM_CLASSES))
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    for tr, te in skf.split(teacher_X_scaled, y):
-        teacher = MLPClassifier(hidden_layer_sizes=TEACHER_HIDDEN, activation="relu", solver="adam",
-                                 alpha=1e-3, max_iter=3000, random_state=seed)
-        teacher.fit(teacher_X_scaled[tr], y[tr])
-        soft[te] = teacher.predict_proba(teacher_X_scaled[te])
-    return soft
-
-
-def resample_distill(student_X_scaled: np.ndarray, y: np.ndarray, soft: np.ndarray, seed: int):
-    """Turns each clip's teacher soft label into RESAMPLE_K extra training
-    examples (a fixed fraction keeping the true label, the rest sampling
-    from the teacher's class distribution), so a plain classifier trained
-    on the expanded set approximately minimizes cross-entropy against the
-    blended hard/soft target - this outperformed directly regressing onto
-    the probability vectors in testing."""
-    rng = np.random.RandomState(seed)
-    n_hard = int(RESAMPLE_K * RESAMPLE_HARD_FRACTION)
-    n_soft = RESAMPLE_K - n_hard
-    X_exp, y_exp = [], []
-    for i in range(len(y)):
-        for _ in range(n_hard):
-            X_exp.append(student_X_scaled[i])
-            y_exp.append(y[i])
-        for _ in range(n_soft):
-            X_exp.append(student_X_scaled[i])
-            y_exp.append(rng.choice(NUM_CLASSES, p=soft[i]))
-    return np.array(X_exp), np.array(y_exp)
+    return np.array(X), np.array(labels)
 
 
 def fold_scaler_into_first_layer(clf: MLPClassifier, scaler: StandardScaler):
@@ -148,6 +104,13 @@ def fold_scaler_into_first_layer(clf: MLPClassifier, scaler: StandardScaler):
     folded_w1 = w1 / scaler.scale_[:, None]
     folded_b1 = b1 - w1.T @ (scaler.mean_ / scaler.scale_)
     return folded_w1, folded_b1
+
+
+def train_classifier(X: np.ndarray, y: np.ndarray, seed: int) -> MLPClassifier:
+    clf = MLPClassifier(hidden_layer_sizes=(NUM_HIDDEN,), activation="relu", solver="adam",
+                         alpha=1e-2, max_iter=3000, random_state=seed)
+    clf.fit(X, y)
+    return clf
 
 
 def main() -> None:
@@ -167,38 +130,25 @@ def main() -> None:
         parser.error(f"Need exactly {NUM_CLASSES} classes, got {len(classes)}: {classes}")
 
     print(f"Classes (keyword_id 0..{NUM_CLASSES - 1}): {classes}")
-    student_X, teacher_X, y = load_dataset(data_dir, classes)
-    if len(student_X) == 0:
+    X, y = load_dataset(data_dir, classes)
+    if len(X) == 0:
         parser.error(f"No training data found under {data_dir}")
     print(f"Loaded {len(y)} examples across {len(set(y.tolist()))} classes")
 
-    # Honest held-out estimate: run the whole pipeline (teacher CV, resample
-    # distillation, scaling) on an 80/20 split that never touches the
-    # weights actually shipped below.
-    s_tr, s_te, t_tr, t_te, y_tr, y_te = train_test_split(
-        student_X, teacher_X, y, test_size=0.2, stratify=y, random_state=args.seed)
-    t_scaler_eval = StandardScaler().fit(t_tr)
-    s_scaler_eval = StandardScaler().fit(s_tr)
-    soft_eval = out_of_fold_soft_labels(t_scaler_eval.transform(t_tr), y_tr, args.seed)
-    Xe, ye = resample_distill(s_scaler_eval.transform(s_tr), y_tr, soft_eval, args.seed)
-    eval_clf = MLPClassifier(hidden_layer_sizes=(NUM_HIDDEN,), activation="relu", solver="adam",
-                              alpha=1e-4, max_iter=2000, random_state=args.seed)
-    eval_clf.fit(Xe, ye)
-    held_out_acc = eval_clf.score(s_scaler_eval.transform(s_te), y_te)
-    print(f"Held-out accuracy estimate (80/20 split, full pipeline): {held_out_acc:.3f}")
+    # Honest held-out estimate: standardize and train on an 80/20 split
+    # that never touches the weights actually shipped below.
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=args.seed)
+    scaler_eval = StandardScaler().fit(X_tr)
+    eval_clf = train_classifier(scaler_eval.transform(X_tr), y_tr, args.seed)
+    held_out_acc = eval_clf.score(scaler_eval.transform(X_te), y_te)
+    print(f"Held-out accuracy estimate (80/20 split): {held_out_acc:.3f}")
 
     # Final shipped weights: same pipeline, trained on every example.
-    t_scaler = StandardScaler().fit(teacher_X)
-    s_scaler = StandardScaler().fit(student_X)
-    soft = out_of_fold_soft_labels(t_scaler.transform(teacher_X), y, args.seed)
-    X_exp, y_exp = resample_distill(s_scaler.transform(student_X), y, soft, args.seed)
+    scaler = StandardScaler().fit(X)
+    clf = train_classifier(scaler.transform(X), y, args.seed)
+    print(f"Final model training accuracy (all data): {clf.score(scaler.transform(X), y):.3f}")
 
-    clf = MLPClassifier(hidden_layer_sizes=(NUM_HIDDEN,), activation="relu", solver="adam",
-                         alpha=1e-4, max_iter=2000, random_state=args.seed)
-    clf.fit(X_exp, y_exp)
-    print(f"Final model training accuracy (on resampled set): {clf.score(X_exp, y_exp):.3f}")
-
-    hidden_w, hidden_b = fold_scaler_into_first_layer(clf, s_scaler)
+    hidden_w, hidden_b = fold_scaler_into_first_layer(clf, scaler)
     output_w, output_b = clf.coefs_[1], clf.intercepts_[1]
 
     # sklearn's coefs_[layer] has shape (n_in, n_out): coefs_[l][j][i] is
