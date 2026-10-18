@@ -1,0 +1,70 @@
+<svg viewBox="0 0 1180 260" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#555"/>
+    </marker>
+  </defs>
+  <style>
+    .blk { fill:#eef3fb; stroke:#4C72B0; stroke-width:1.5; rx:6; }
+    .lbl { font-size:12px; fill:#1b2733; text-anchor:middle; }
+    .sub { font-size:9.5px; fill:#55616e; text-anchor:middle; }
+    .edge { stroke:#555; stroke-width:1.5; fill:none; marker-end:url(#arrow); }
+  </style>
+
+  <rect x="10" y="90" width="90" height="60" class="blk"/>
+  <text x="55" y="115" class="lbl">audio.mem</text>
+  <text x="55" y="130" class="sub">BRAM</text>
+
+  <rect x="130" y="90" width="110" height="60" class="blk"/>
+  <text x="185" y="112" class="lbl">preprocessing</text>
+  <text x="185" y="127" class="sub">pre-emphasis</text>
+  <text x="185" y="139" class="sub">y[n]=x[n]-0.95x[n-1]</text>
+
+  <rect x="270" y="90" width="90" height="60" class="blk"/>
+  <text x="315" y="112" class="lbl">fft</text>
+  <text x="315" y="127" class="sub">Hamming +</text>
+  <text x="315" y="139" class="sub">8-bin DFT</text>
+
+  <rect x="390" y="90" width="120" height="60" class="blk"/>
+  <text x="450" y="112" class="lbl">mel_filterbank</text>
+  <text x="450" y="127" class="sub">magnitude +</text>
+  <text x="450" y="139" class="sub">13-band Mel</text>
+
+  <rect x="540" y="30" width="110" height="60" class="blk"/>
+  <text x="595" y="52" class="lbl">dense_hidden</text>
+  <text x="595" y="67" class="sub">13 -&gt; 16</text>
+  <text x="595" y="79" class="sub">+ relu x16</text>
+
+  <rect x="680" y="30" width="130" height="60" class="blk"/>
+  <text x="745" y="52" class="lbl">matrix_multiplication</text>
+  <text x="745" y="67" class="sub">16 -&gt; 8</text>
+  <text x="745" y="79" class="sub">+ relu x8</text>
+
+  <rect x="840" y="30" width="110" height="60" class="blk"/>
+  <text x="895" y="52" class="lbl">softmax_lut</text>
+  <text x="895" y="67" class="sub">exp LUT,</text>
+  <text x="895" y="79" class="sub">max-sub stable</text>
+
+  <rect x="980" y="30" width="90" height="60" class="blk"/>
+  <text x="1025" y="55" class="lbl">argmax</text>
+  <text x="1025" y="70" class="sub">top_module.v</text>
+
+  <rect x="980" y="150" width="90" height="60" class="blk"/>
+  <text x="1025" y="172" class="lbl">debounce</text>
+  <text x="1025" y="187" class="sub">N cycles</text>
+  <text x="1025" y="199" class="sub">stable hold</text>
+
+  <rect x="840" y="150" width="110" height="60" class="blk"/>
+  <text x="895" y="175" class="lbl">keyword_id</text>
+  <text x="895" y="190" class="sub">+ RGB LED</text>
+
+  <path class="edge" d="M100,120 H130"/>
+  <path class="edge" d="M240,120 H270"/>
+  <path class="edge" d="M360,120 H385 Q390,120 390,120"/>
+  <path class="edge" d="M450,90 V60 H540"/>
+  <path class="edge" d="M650,60 H680"/>
+  <path class="edge" d="M810,60 H840"/>
+  <path class="edge" d="M950,60 H980"/>
+  <path class="edge" d="M1025,90 V150"/>
+  <path class="edge" d="M980,180 H950"/>
+</svg>
