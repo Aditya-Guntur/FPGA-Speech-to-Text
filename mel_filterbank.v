@@ -1,6 +1,11 @@
 module mel_filterbank (
     input wire clk,
     input wire rst,
+    // fft_output_0..7 = real part of DFT bins 0..7, fft_output_8..15 =
+    // imaginary part of the same bins (see fft.v) - fft.v now computes an
+    // actual DFT instead of its earlier sum/difference placeholder, so
+    // this module's job starts with turning those real/imaginary pairs
+    // into a magnitude spectrum before Mel-weighting it.
     input wire [15:0] fft_output_0, input wire [15:0] fft_output_1,
     input wire [15:0] fft_output_2, input wire [15:0] fft_output_3,
     input wire [15:0] fft_output_4, input wire [15:0] fft_output_5,
@@ -18,10 +23,21 @@ module mel_filterbank (
     output reg [15:0] mel_features_12
 );
 
-    reg signed [15:0] fft_output [0:15];
-    reg signed [15:0] mel_features [0:12];
-    reg signed [15:0] mel_filter [0:15][0:12];  // 16 FFT bins to 13 Mel bands mapping
+    localparam NUM_BINS = 8;
+    localparam NUM_BANDS = 13;
+
+    reg signed [15:0] bin_real [0:NUM_BINS-1];
+    reg signed [15:0] bin_imag [0:NUM_BINS-1];
+    reg [15:0] magnitude [0:NUM_BINS-1];   // |real| + |imag|: a cheap magnitude
+                                            // estimate that avoids a sqrt, a
+                                            // standard approximation in small
+                                            // embedded DSP designs.
+    reg signed [15:0] mel_features [0:NUM_BANDS-1];
+    reg signed [15:0] mel_filter [0:NUM_BINS-1][0:NUM_BANDS-1];
     integer i, j;
+    // See fft.v: (a * b) >>> N truncates a*b to 16 bits before shifting
+    // unless routed through an explicitly wider temporary first.
+    reg signed [31:0] product;
 
     initial begin
         $readmemh("mel_filter.mem", mel_filter);  // Load filter coefficients
@@ -29,25 +45,31 @@ module mel_filterbank (
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            for (i = 0; i < 13; i = i + 1) begin
+            for (i = 0; i < NUM_BANDS; i = i + 1) begin
                 mel_features[i] <= 0;
             end
         end else begin
-            // Load FFT Outputs into array
-            fft_output[0] = fft_output_0; fft_output[1] = fft_output_1;
-            fft_output[2] = fft_output_2; fft_output[3] = fft_output_3;
-            fft_output[4] = fft_output_4; fft_output[5] = fft_output_5;
-            fft_output[6] = fft_output_6; fft_output[7] = fft_output_7;
-            fft_output[8] = fft_output_8; fft_output[9] = fft_output_9;
-            fft_output[10] = fft_output_10; fft_output[11] = fft_output_11;
-            fft_output[12] = fft_output_12; fft_output[13] = fft_output_13;
-            fft_output[14] = fft_output_14; fft_output[15] = fft_output_15;
+            bin_real[0] = fft_output_0; bin_real[1] = fft_output_1;
+            bin_real[2] = fft_output_2; bin_real[3] = fft_output_3;
+            bin_real[4] = fft_output_4; bin_real[5] = fft_output_5;
+            bin_real[6] = fft_output_6; bin_real[7] = fft_output_7;
+
+            bin_imag[0] = fft_output_8;  bin_imag[1] = fft_output_9;
+            bin_imag[2] = fft_output_10; bin_imag[3] = fft_output_11;
+            bin_imag[4] = fft_output_12; bin_imag[5] = fft_output_13;
+            bin_imag[6] = fft_output_14; bin_imag[7] = fft_output_15;
+
+            for (i = 0; i < NUM_BINS; i = i + 1) begin
+                magnitude[i] = (bin_real[i] < 0 ? -bin_real[i] : bin_real[i])
+                             + (bin_imag[i] < 0 ? -bin_imag[i] : bin_imag[i]);
+            end
 
             // Apply Mel Filter Bank
-            for (i = 0; i < 13; i = i + 1) begin
+            for (i = 0; i < NUM_BANDS; i = i + 1) begin
                 mel_features[i] = 0;
-                for (j = 0; j < 16; j = j + 1) begin
-                    mel_features[i] = mel_features[i] + ((fft_output[j] * mel_filter[j][i]) >>> 8);
+                for (j = 0; j < NUM_BINS; j = j + 1) begin
+                    product = magnitude[j] * mel_filter[j][i];
+                    mel_features[i] = mel_features[i] + (product >>> 8);
                 end
             end
 
