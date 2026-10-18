@@ -35,6 +35,15 @@ module fft (
     reg signed [15:0] windowed [0:15];       // after the Hamming window
     integer i, k, n, idx;
     reg signed [31:0] real_acc, imag_acc;
+    // Verilog shift operators are self-determined and do NOT inherit the
+    // width of whatever consumes their result, even through an assignment
+    // or addition on the outside - (a * b) >>> N truncates a*b to the
+    // width of its own operands FIRST, silently corrupting any product
+    // that doesn't fit in 16 bits (common: two near-full-scale 16-bit
+    // values multiply to needing ~32 bits). Routing every product through
+    // this explicit 32-bit temporary before shifting is what actually
+    // avoids that, confirmed against a known-value test case.
+    reg signed [31:0] product;
 
     // Hamming window, w[n] = 0.54 - 0.46*cos(2*pi*n/15), Q15.
     reg signed [15:0] HAMMING [0:15];
@@ -72,7 +81,8 @@ module fft (
         // frame edges and reduces spectral leakage - standard practice
         // ahead of any DFT/FFT on a finite sample window.
         for (n = 0; n < 16; n = n + 1) begin
-            windowed[n] = (fft_buffer[n] * HAMMING[n]) >>> 15;
+            product = fft_buffer[n] * HAMMING[n];
+            windowed[n] = product >>> 15;
         end
 
         // Direct-form DFT: X[k] = sum_n windowed[n] * e^(-j*2*pi*k*n/16)
@@ -81,8 +91,10 @@ module fft (
             imag_acc = 0;
             for (n = 0; n < 16; n = n + 1) begin
                 idx = (k * n) % 16;
-                real_acc = real_acc + ((windowed[n] * COS16[idx]) >>> 15);
-                imag_acc = imag_acc - ((windowed[n] * SIN16[idx]) >>> 15);
+                product = windowed[n] * COS16[idx];
+                real_acc = real_acc + (product >>> 15);
+                product = windowed[n] * SIN16[idx];
+                imag_acc = imag_acc - (product >>> 15);
             end
             // Normalize by N=16 so bin magnitude stays in the same ballpark
             // as the input samples instead of growing with the window size.
