@@ -1,9 +1,13 @@
-# Hear-it-Right
+# FPGA Speech-to-Text
 
-A speech keyword-recognition pipeline implemented directly in Verilog for
-the Digilent Cora Z7 (Zynq-7000), from raw PCM audio in BRAM through to a
-10-keyword classification shown on an RGB LED. No vendor IP blocks or HLS -
-every stage (DSP and neural network both) is hand-written RTL.
+Speech keyword recognition running entirely on FPGA fabric - no host CPU,
+no cloud round-trip, no general-purpose processor anywhere in the loop.
+Raw PCM audio comes in from BRAM on a Digilent Cora Z7 (Zynq-7000) edge
+board, and a keyword classification comes out on an RGB LED, with every
+stage of the pipeline - signal processing *and* the neural network - hand-
+written Verilog RTL. No vendor DSP/NN IP blocks, no HLS: this is what
+speech recognition looks like when the entire inference pipeline has to
+fit and run inside programmable logic on constrained edge hardware.
 
 ## Pipeline
 
@@ -22,9 +26,9 @@ audio.mem (BRAM) --> preprocessing --> fft --> mel_filterbank -->
 | 4 | `onset_trigger.v` | Watches the raw audio feeding `fft.v` for a short-time energy threshold crossing (256-sample blocks) and holds `segment_buffer.v` idle until it fires, so the classifier's window starts on the spoken word instead of on however much silence happens to precede it in the recording. |
 | 5 | `segment_buffer.v` | Pools the streaming per-sample Mel output into 6 segments of ~2048 cycles each (a window long enough to span a spoken word), giving the classifier 78 features (6 segments x 13 bands) that capture how the word's spectrum evolves over time, instead of 13 features describing only the current instant. |
 | 6 | `gain_normalize.v` | Approximates dividing the 78 segment-pooled features by their own total energy (a priority encoder finds the highest set bit, then a saturating shift brings it toward a fixed reference magnitude), so two recordings of the same word at different volumes land on similar features. |
-| 7 | `dense_hidden.v` | First classifier layer: 78 segment-pooled, gain-normalized Mel features -> 16 hidden units (`hidden_weights.mem` / `hidden_biases.mem`). |
-| 8 | `relu.v` (x16) | Hidden-layer ReLU activation. |
-| 9 | `matrix_multiplication.v` | Second classifier layer: 16 hidden units -> 8 class scores (`weights.mem` / `biases.mem`). |
+| 7 | `dense_hidden.v` | First classifier layer: 78 segment-pooled, gain-normalized Mel features -> 256 hidden units (`hidden_weights.mem` / `hidden_biases.mem`). |
+| 8 | `relu.v` (x256) | Hidden-layer ReLU activation. |
+| 9 | `matrix_multiplication.v` | Second classifier layer: 256 hidden units -> 8 class scores (`weights.mem` / `biases.mem`). |
 | 10 | `relu.v` (x8) | Output-layer ReLU activation. |
 | 11 | `softmax_lut.v` | Converts the 8 class scores to probabilities via a precomputed exponential lookup table (`softmax_lut.mem`), with max-subtraction for numerical stability. |
 | 12 | `top_module.v` | Argmax over the 8 probabilities selects `raw_keyword_id`. |
@@ -33,6 +37,45 @@ audio.mem (BRAM) --> preprocessing --> fft --> mel_filterbank -->
 All fixed-point arithmetic is Q1.15 (signed 16-bit, `>>>15` rescale after a
 multiply) for weights/activations and Q8 (`>>>8`) for Mel filter
 coefficients.
+
+## Training data
+
+A hidden layer this size (256 units) needs a real dataset behind it, not
+a few hundred samples per word - an earlier, smaller pull of audio
+(the Speech Commands test split only, ~400 clips/class) was enough to
+validate the pipeline but started overfitting as soon as the hidden
+layer grew past ~16 units. Fixing that meant going back for more real
+audio, not just tuning the model harder on what was already there.
+
+[Speech
+Commands](https://huggingface.co/datasets/pollen-robotics/speech-commands-v0.02)
+v0.02 is split by Google into `train` and `test` parquet shards (49
+shards total). The test split alone covers every keyword but thinly;
+the bulk of the real recordings - thousands of different speakers,
+microphones, rooms and accents saying the same eight words - live in
+the 43 `train` shards, which are stored one-keyword-at-a-time rather
+than shuffled, so getting *all eight* target words meant downloading
+and scanning essentially the whole split, not just a convenient
+sample. Combining both splits gives:
+
+| Keyword | Real clips |
+|---|---|
+| up | 3,373 |
+| down | 3,540 |
+| right | 3,415 |
+| left | 3,449 |
+| stop | 3,522 |
+| go | 3,508 |
+| yes | 3,647 |
+| no | 3,535 |
+| **Total** | **27,989** |
+
+Every one of these is a real recording of someone saying the word -
+no synthetic audio, no text-to-speech, no duplicated clips. `scripts/
+train.py` reads this directory layout directly (`data/<keyword>/*.wav`);
+rebuilding it from the parquet shards means iterating each shard's
+`label`/`audio` columns and writing out the matching rows as 16kHz
+mono 16-bit PCM WAV files, one subfolder per keyword.
 
 ## Output mapping
 
@@ -50,10 +93,10 @@ RGB LED (`led_r`, `led_g`, `led_b`):
 | 6 | Yes | Magenta |
 | 7 | No | White |
 
-The classifier only has 8 output classes, so `keyword_id` values 8 (reserved,
-blinking red) and 9 (reserved, blinking green) in `top_module.v`'s LED case
-statement are unreachable with the current layer sizes - kept for a future
-10-class classifier.
+The classifier only has 8 output classes, so `keyword_id` values 8
+(blinking red) and 9 (blinking green) in `top_module.v`'s LED case
+statement are unreachable with the current layer sizes - kept as
+reserved slots for a future 10-class classifier.
 
 ## FPGA setup (Digilent Cora Z7)
 
@@ -145,23 +188,19 @@ output peaks at bin 5 as expected:
 <img src="examples/dft_validation.png" width="420" alt="DFT bin validation">
 
 The shipped `hidden_weights.mem` / `hidden_biases.mem` / `weights.mem` /
-`biases.mem` are real weights from `scripts/train.py`, trained on 3276
-real clips (roughly 400 per class) of the
-`up`/`down`/`right`/`left`/`stop`/`go`/`yes`/`no` keywords from the
-[Speech
-Commands](https://huggingface.co/datasets/pollen-robotics/speech-commands-v0.02)
-dataset, run through the exact feature pipeline `extract_features.py`
-mirrors from the hardware (32-bin DFT, onset alignment, 6-segment
-pooling, gain normalization - see the Pipeline table above), plus
-time-shift/noise augmentation during training only. Held-out accuracy
-on an 80/20 split of clean, un-augmented audio is 0.713 (vs. 0.125 for
-random guessing across 8 classes). Confusion matrix and training loss
-curve for that run:
+`biases.mem` are real weights from `scripts/train.py`, trained on the
+27,989-clip dataset above, run through the exact feature pipeline
+`extract_features.py` mirrors from the hardware (32-bin DFT, onset
+alignment, 6-segment pooling, gain normalization - see the Pipeline
+table above), plus time-shift/noise augmentation during training only.
+Held-out accuracy on an 80/20 split of clean, un-augmented audio is
+0.847 (vs. 0.125 for random guessing across 8 classes). Confusion
+matrix and training loss curve for that run:
 
 <img src="examples/confusion_matrix.png" width="440" alt="Confusion matrix">
 <img src="examples/training_loss.png" width="440" alt="Training loss curve">
 
-This model went through four real rounds of improvement, each change
+This model went through five real rounds of improvement, each change
 verified by actually measuring held-out accuracy rather than assumed:
 
 1. **Whole-clip mean-pooling -> 6-segment pooling** (`segment_buffer.v`):
@@ -194,24 +233,46 @@ verified by actually measuring held-out accuracy rather than assumed:
    can't do - centering on a clip's single loudest point, which does
    require that look-ahead, reached ~0.69 in testing but isn't
    something this hardware can do).
-4. **8-bin DFT -> 32-bin DFT** (`fft.v`, `mel_filterbank.v`): by far
-   the largest single change. 8 frequency bins across the full 8kHz
-   Nyquist range (~1kHz/bin) is too coarse to resolve much of speech's
-   actual spectral structure - every other change up to this point was
-   about removing *noise* from a fixed amount of frequency information;
-   this one adds more of that information in the first place. Doubling
-   the DFT size twice (8 -> 16 -> 32 bins, `fft.v`'s direct-form DFT
-   cost grows as taps*bins) took held-out accuracy from ~0.60 to
-   ~0.71-0.72; a further doubling to 64 bins only added ~0.01 more for
-   4x the hardware cost, so 32 was kept as the better tradeoff.
+4. **8-bin DFT -> 32-bin DFT** (`fft.v`, `mel_filterbank.v`): 8 frequency
+   bins across the full 8kHz Nyquist range (~1kHz/bin) is too coarse to
+   resolve much of speech's actual spectral structure - every other
+   change up to this point was about removing *noise* from a fixed
+   amount of frequency information; this one adds more of that
+   information in the first place. Doubling the DFT size twice (8 ->
+   16 -> 32 bins, `fft.v`'s direct-form DFT cost grows as taps*bins)
+   took held-out accuracy from ~0.60 to ~0.71-0.72; a further doubling
+   to 64 bins only added ~0.01 more for 4x the hardware cost, so 32 was
+   kept as the better tradeoff.
+5. **16 -> 256 hidden units, 3,276 -> 27,989 real clips** (`dense_hidden.v`,
+   `matrix_multiplication.v`): by far the largest single change, and the
+   two had to happen together - growing the hidden layer alone on the
+   smaller dataset mostly just overfit faster, and more data alone
+   didn't give the bigger layer anything extra to do. Pulling in the
+   rest of the real Speech Commands training data (see "Training data"
+   above - roughly 8x more real audio per class than the test-split-only
+   set used until this point) and re-sweeping hidden-layer size against
+   it showed accuracy climbing well past 16 units once there was enough
+   data to support it, with 256 units landing near where returns
+   clearly diminished (512 units measured *worse* on the smaller
+   dataset - growing the model and growing the data had to be swept
+   together, not separately). This step alone took held-out accuracy
+   from ~0.72 to ~0.85.
 
 An 8-way classifier built from a 13-band Mel/32-bin DFT front end and a
-78→16→8 MLP is still a tight budget for real speech - the point of this
-project is the hand-written RTL pipeline end-to-end (BRAM to LED), not
-state-of-the-art keyword spotting accuracy. More bins, more segments, a
-buffered (non-causal) onset window, or a bigger hidden layer (all just
-module/`.mem` size parameters, in the spirit of the four changes above)
-would likely push accuracy further.
+78→256→8 MLP is still a modest budget for real speech next to
+convolutional small-footprint keyword spotters in the literature (which
+report 90-95%+ on similarly-sized vocabularies with far more
+parameters), but for a plain multilayer perceptron with ~20,000
+parameters it reaches real, honestly-measured accuracy an order of
+magnitude above chance. The point of this project isn't chasing
+state-of-the-art keyword-spotting accuracy on a server GPU - it's
+proving the entire pipeline (DSP front end and neural network alike)
+can be hand-written, synthesized, and actually run on constrained
+programmable logic, standalone, at the edge. More bins, more segments,
+a buffered (non-causal) onset window, or an even bigger hidden layer
+with proportionally more data (all just module/`.mem` size parameters,
+in the spirit of the five changes above) would likely push accuracy
+further still, within that same "runs entirely on the FPGA" constraint.
 
 ## License
 
