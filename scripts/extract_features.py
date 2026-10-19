@@ -3,12 +3,21 @@
 Verilog implements (preprocessing.v -> fft.v -> mel_filterbank.v), in
 floating point:
 
-    pre-emphasis -> Hamming window -> 8-bin direct-form DFT ->
+    pre-emphasis -> Hamming window -> 32-bin direct-form DFT ->
     magnitude (|re| + |im|) -> 13-band Mel filterbank
 
 Used by train.py so features seen during training match what the
 hardware actually computes, not a generic MFCC pipeline. Expects
 16kHz mono 16-bit PCM WAV input, same as audio.mem.
+
+NUM_TAPS/NUM_BINS were doubled twice from an original 16/8: each
+doubling (8->16->32 bins) measurably improved held-out classifier
+accuracy in testing (see scripts/train.py), with the jump from 16 to
+32 bins being the largest of the three - a 16kHz signal has real
+spectral structure a coarser analysis window just can't resolve.
+64 bins pushed accuracy up only slightly further for 4x the hardware
+cost (fft.v's direct-form DFT is O(taps*bins)), so 32 was kept as the
+better cost/accuracy tradeoff.
 
 Usage (standalone):
     python scripts/extract_features.py path/to/clip.wav
@@ -22,8 +31,8 @@ import wave
 import numpy as np
 
 ALPHA = 0.95
-NUM_TAPS = 16
-NUM_BINS = 8
+NUM_TAPS = 64
+NUM_BINS = 32
 NUM_BANDS = 13
 SAMPLE_RATE = 16000
 
@@ -94,8 +103,8 @@ _MEL_FILTER = build_mel_filterbank(NUM_BINS, NUM_BANDS, SAMPLE_RATE)
 
 def extract_frames(samples: np.ndarray) -> np.ndarray:
     """Returns an (num_frames, NUM_BANDS) array - one Mel feature vector
-    per sample, sliding a 16-tap window forward by 1 sample at a time,
-    exactly like the hardware's shift-register buffer."""
+    per sample, sliding a NUM_TAPS-tap window forward by 1 sample at a
+    time, exactly like the hardware's shift-register buffer."""
     emphasized = pre_emphasize(samples)
     n = len(emphasized)
     if n < NUM_TAPS:
