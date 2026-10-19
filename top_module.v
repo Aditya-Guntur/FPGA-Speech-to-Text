@@ -10,10 +10,23 @@ module top_module (
 
     );
     wire [15:0] fft_input;
+    // 32-bin direct-form DFT (see fft.v) - fft_out_0..31 real, fft_out_32..63 imaginary.
     wire [15:0] fft_out_0, fft_out_1, fft_out_2, fft_out_3;
     wire [15:0] fft_out_4, fft_out_5, fft_out_6, fft_out_7;
     wire [15:0] fft_out_8, fft_out_9, fft_out_10, fft_out_11;
     wire [15:0] fft_out_12, fft_out_13, fft_out_14, fft_out_15;
+    wire [15:0] fft_out_16, fft_out_17, fft_out_18, fft_out_19;
+    wire [15:0] fft_out_20, fft_out_21, fft_out_22, fft_out_23;
+    wire [15:0] fft_out_24, fft_out_25, fft_out_26, fft_out_27;
+    wire [15:0] fft_out_28, fft_out_29, fft_out_30, fft_out_31;
+    wire [15:0] fft_out_32, fft_out_33, fft_out_34, fft_out_35;
+    wire [15:0] fft_out_36, fft_out_37, fft_out_38, fft_out_39;
+    wire [15:0] fft_out_40, fft_out_41, fft_out_42, fft_out_43;
+    wire [15:0] fft_out_44, fft_out_45, fft_out_46, fft_out_47;
+    wire [15:0] fft_out_48, fft_out_49, fft_out_50, fft_out_51;
+    wire [15:0] fft_out_52, fft_out_53, fft_out_54, fft_out_55;
+    wire [15:0] fft_out_56, fft_out_57, fft_out_58, fft_out_59;
+    wire [15:0] fft_out_60, fft_out_61, fft_out_62, fft_out_63;
 
     wire [15:0] mel_out_0, mel_out_1, mel_out_2, mel_out_3;
     wire [15:0] mel_out_4, mel_out_5, mel_out_6, mel_out_7;
@@ -92,7 +105,31 @@ module top_module (
         .fft_output_8(fft_out_8), .fft_output_9(fft_out_9),
         .fft_output_10(fft_out_10), .fft_output_11(fft_out_11),
         .fft_output_12(fft_out_12), .fft_output_13(fft_out_13),
-        .fft_output_14(fft_out_14), .fft_output_15(fft_out_15)
+        .fft_output_14(fft_out_14), .fft_output_15(fft_out_15),
+        .fft_output_16(fft_out_16), .fft_output_17(fft_out_17),
+        .fft_output_18(fft_out_18), .fft_output_19(fft_out_19),
+        .fft_output_20(fft_out_20), .fft_output_21(fft_out_21),
+        .fft_output_22(fft_out_22), .fft_output_23(fft_out_23),
+        .fft_output_24(fft_out_24), .fft_output_25(fft_out_25),
+        .fft_output_26(fft_out_26), .fft_output_27(fft_out_27),
+        .fft_output_28(fft_out_28), .fft_output_29(fft_out_29),
+        .fft_output_30(fft_out_30), .fft_output_31(fft_out_31),
+        .fft_output_32(fft_out_32), .fft_output_33(fft_out_33),
+        .fft_output_34(fft_out_34), .fft_output_35(fft_out_35),
+        .fft_output_36(fft_out_36), .fft_output_37(fft_out_37),
+        .fft_output_38(fft_out_38), .fft_output_39(fft_out_39),
+        .fft_output_40(fft_out_40), .fft_output_41(fft_out_41),
+        .fft_output_42(fft_out_42), .fft_output_43(fft_out_43),
+        .fft_output_44(fft_out_44), .fft_output_45(fft_out_45),
+        .fft_output_46(fft_out_46), .fft_output_47(fft_out_47),
+        .fft_output_48(fft_out_48), .fft_output_49(fft_out_49),
+        .fft_output_50(fft_out_50), .fft_output_51(fft_out_51),
+        .fft_output_52(fft_out_52), .fft_output_53(fft_out_53),
+        .fft_output_54(fft_out_54), .fft_output_55(fft_out_55),
+        .fft_output_56(fft_out_56), .fft_output_57(fft_out_57),
+        .fft_output_58(fft_out_58), .fft_output_59(fft_out_59),
+        .fft_output_60(fft_out_60), .fft_output_61(fft_out_61),
+        .fft_output_62(fft_out_62), .fft_output_63(fft_out_63)
     );
 
     // Mel Filterbank Module
@@ -106,6 +143,30 @@ module top_module (
         .fft_output_10(fft_out_10), .fft_output_11(fft_out_11),
         .fft_output_12(fft_out_12), .fft_output_13(fft_out_13),
         .fft_output_14(fft_out_14), .fft_output_15(fft_out_15),
+        .fft_output_16(fft_out_16), .fft_output_17(fft_out_17),
+        .fft_output_18(fft_out_18), .fft_output_19(fft_out_19),
+        .fft_output_20(fft_out_20), .fft_output_21(fft_out_21),
+        .fft_output_22(fft_out_22), .fft_output_23(fft_out_23),
+        .fft_output_24(fft_out_24), .fft_output_25(fft_out_25),
+        .fft_output_26(fft_out_26), .fft_output_27(fft_out_27),
+        .fft_output_28(fft_out_28), .fft_output_29(fft_out_29),
+        .fft_output_30(fft_out_30), .fft_output_31(fft_out_31),
+        .fft_output_32(fft_out_32), .fft_output_33(fft_out_33),
+        .fft_output_34(fft_out_34), .fft_output_35(fft_out_35),
+        .fft_output_36(fft_out_36), .fft_output_37(fft_out_37),
+        .fft_output_38(fft_out_38), .fft_output_39(fft_out_39),
+        .fft_output_40(fft_out_40), .fft_output_41(fft_out_41),
+        .fft_output_42(fft_out_42), .fft_output_43(fft_out_43),
+        .fft_output_44(fft_out_44), .fft_output_45(fft_out_45),
+        .fft_output_46(fft_out_46), .fft_output_47(fft_out_47),
+        .fft_output_48(fft_out_48), .fft_output_49(fft_out_49),
+        .fft_output_50(fft_out_50), .fft_output_51(fft_out_51),
+        .fft_output_52(fft_out_52), .fft_output_53(fft_out_53),
+        .fft_output_54(fft_out_54), .fft_output_55(fft_out_55),
+        .fft_output_56(fft_out_56), .fft_output_57(fft_out_57),
+        .fft_output_58(fft_out_58), .fft_output_59(fft_out_59),
+        .fft_output_60(fft_out_60), .fft_output_61(fft_out_61),
+        .fft_output_62(fft_out_62), .fft_output_63(fft_out_63),
         .mel_features_0(mel_out_0), .mel_features_1(mel_out_1),
         .mel_features_2(mel_out_2), .mel_features_3(mel_out_3),
         .mel_features_4(mel_out_4), .mel_features_5(mel_out_5),

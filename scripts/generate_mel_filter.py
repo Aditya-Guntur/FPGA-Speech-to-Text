@@ -1,25 +1,15 @@
 #!/usr/bin/env python3
 """Generate mel_filter.mem: a standard triangular Mel filterbank, sized
-and formatted for mel_filterbank.v's actual [0:15][0:12] array (16
-frequency bins -> 13 Mel bands).
+and formatted for mel_filterbank.v's actual [0:31][0:12] array (32
+frequency bins -> 13 Mel bands - fft.v's direct-form DFT bin count,
+doubled twice from an original 8 since each doubling measurably
+improved held-out classifier accuracy; see extract_features.py).
 
-The shipped mel_filter.mem was 5160 words (a filterbank sized for a
-129-bin/40-band design) against a module that declares 16*13=208
-words - $readmemh silently dropped everything past the first 208
-entries, which had no relationship to this module's actual bin/band
-layout. fft.v computes a simple sum/difference pairing over a 16-sample
-window rather than a true frequency-domain FFT, so its 16 outputs
-aren't evenly-spaced frequency bins in the usual sense; this still
-builds a standard Mel-scale triangular filterbank across those 16
-bins on the assumption they span 0-8000Hz (Nyquist for 16kHz audio),
-which is the closest principled mapping available without a real FFT
-stage.
-
-Output: mel_filter.mem, 208 lines of 16-bit hex (row-major [bin][band],
-matching `reg signed [15:0] mel_filter [0:15][0:12]`), Q8 fixed point
+Output: mel_filter.mem, 416 lines of 16-bit hex (row-major [bin][band],
+matching `reg signed [15:0] mel_filter [0:31][0:12]`), Q8 fixed point
 to match mel_filterbank.v's `>>> 8` shift.
 
-Usage: python scripts/generate_mel_filter.py [--bins 16] [--bands 13] [--sample-rate 16000]
+Usage: python scripts/generate_mel_filter.py [--bins 32] [--bands 13] [--sample-rate 16000]
 """
 
 import argparse
@@ -65,7 +55,7 @@ def build_filterbank(num_bins: int, num_bands: int, sample_rate: int, q_scale: i
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bins", type=int, default=8)
+    parser.add_argument("--bins", type=int, default=32)
     parser.add_argument("--bands", type=int, default=13)
     parser.add_argument("--sample-rate", type=int, default=16000)
     parser.add_argument("--q-scale", type=int, default=256, help="Fixed-point scale (2^8, matches the >>>8 shift)")
