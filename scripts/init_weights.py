@@ -16,7 +16,7 @@ import argparse
 import struct
 
 NUM_FEATURES = 78  # 6 segments x 13 Mel bands - see segment_buffer.v
-NUM_HIDDEN = 16
+NUM_HIDDEN = 256
 NUM_CLASSES = 8
 Q15_SCALE = 1 << 15
 
