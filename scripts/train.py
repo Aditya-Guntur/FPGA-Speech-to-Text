@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Train the classifier (78 segment-pooled Mel features -> 16 hidden ->
+"""Train the classifier (78 segment-pooled Mel features -> 256 hidden ->
 8 classes) on real labeled recordings and export the result as
 hidden_weights.mem / hidden_biases.mem / weights.mem / biases.mem, in
 the exact format and layout dense_hidden.v and matrix_multiplication.v
 expect.
 
-Three things make a real difference at this model's size (fixed by
-the RTL: a hidden layer of 16 units) with a few thousand real
-recordings:
+Four things make a real difference at this model's size:
 
 1. Segment-pooling instead of whole-clip mean-pooling. Averaging every
    frame of a ~1s clip into one vector throws away virtually all of
@@ -31,16 +29,21 @@ recordings:
 3. Data augmentation: time-shifting and adding light Gaussian noise to
    the raw audio before feature extraction (train-time only - the
    evaluation/held-out audio is never augmented) gives the classifier
-   several slightly different versions of the same recording, which
-   on this little data measurably improves generalization on top of
-   everything else.
+   a second, slightly different version of each recording, which
+   measurably improves generalization on top of everything else.
+4. A much bigger hidden layer and a much bigger real dataset, tested
+   together. NUM_HIDDEN went from 16 to 256 (dense_hidden.v and
+   matrix_multiplication.v resized to match) - accuracy kept climbing
+   well past 16 units once trained on closer to 28,000 real clips
+   instead of a few thousand, which going from 16 to 256 units on the
+   smaller dataset alone did not show (it mostly just overfit faster).
+   Both changes were necessary together; neither alone got close.
 
-Plain standardized hard-label training on top of all of this already
-beats every knowledge-distillation variant tried (the extra signal in
-78 segment-pooled, gain-normalized features made the distillation step
-that helped an earlier 13-feature, whole-clip-mean version of this
-model actively counterproductive here), so this script doesn't do
-that.
+Plain standardized hard-label training on top of all of this still
+beats every knowledge-distillation variant tried on an earlier,
+smaller version of this model (the extra signal in 78 segment-pooled,
+gain-normalized features made distillation actively counterproductive
+even before the hidden layer grew), so this script doesn't do that.
 
 Expects a directory of one subfolder per keyword, each full of 16kHz
 mono 16-bit PCM WAV recordings of that keyword:
@@ -73,10 +76,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from extract_features import extract_segments, load_wav, NUM_SEGMENTS, NUM_BANDS  # noqa: E402
 
 NUM_FEATURES = NUM_SEGMENTS * NUM_BANDS  # 78
-NUM_HIDDEN = 16
+NUM_HIDDEN = 256
 NUM_CLASSES = 8
 Q15_SCALE = 1 << 15
-AUG_COPIES_PER_CLIP = 2
+AUG_COPIES_PER_CLIP = 1
 AUG_MAX_SHIFT_SAMPLES = 1600  # ~0.1s at 16kHz
 AUG_NOISE_STD = 300  # relative to +/-32768 full scale
 
@@ -145,7 +148,7 @@ def fold_scaler_into_first_layer(clf: MLPClassifier, scaler: StandardScaler):
 
 def train_classifier(X: np.ndarray, y: np.ndarray, seed: int) -> MLPClassifier:
     clf = MLPClassifier(hidden_layer_sizes=(NUM_HIDDEN,), activation="relu", solver="adam",
-                         alpha=1e-2, max_iter=3000, random_state=seed)
+                         alpha=1e-1, max_iter=2000, random_state=seed)
     clf.fit(X, y)
     return clf
 
